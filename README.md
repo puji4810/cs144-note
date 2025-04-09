@@ -1,3 +1,60 @@
+# CS144 Notes
+
+1. [Reassembler](#check1---reassembler)
+2. [TCP Receiver](#check2---tcp-receiver)
+3. [TCP Sender](#check3---tcp-sender)
+
+## Check1 - Reassembler
+### Some details of Reassembler
+
+1. **TCP接收器的功能**：
+   - TCP发送器会将其数据流分割成短段（每个段不超过大约1,460个字节），以确保它们可以放入数据包中。
+   - 然而，网络可能会重新排序、丢弃或重复这些数据包。
+   - 接收器必须将这些段重新组装成原始数据流中的连续字节序列。
+
+2. **Reassembler接口**：
+   ```cpp
+   void insert( uint64_t first_index, std::string data, bool is_last_substring );
+   uint64_t count_bytes_pending() const;
+   Reader& reader();
+   ```
+3. **需求**：
+   - `insert`方法告知Reassembler一个新的数据流片段，并告知其在整体流中的位置（子字符串的第一个字节的索引）。
+   - Reassembler需要处理三种类型的知识：
+     - 是下一个字节在流中的字节。Reassembler应尽快将这些字节推送到流中。
+     - 能够容纳在流中的可用容量内的字节，但因为早期的字节未知而不能立即写入。这些字节应存储在Reassembler内部。
+     - 超出流的可用容量的字节。这些字节应被丢弃。Reassembler不会存储任何无法立即或在早期字节变得已知后被推送到ByteStream的字节。
+   - 处理重叠子字符串：
+      - 子字符串可以重叠，但不应存储重叠的子字符串。如果提供者提供了关于同一索引的冗余信息，Reassembler应该只存储一次这种信息。
+
+## Check2 - TCP Receiver
+
+### Some details of TCP receiver
+
+receiver 需要告知 
+- ackno(acknowledgment number) 给 sender
+- windows size 滑动窗口大小，the available capacity of the output ByteStream。窗口大小表示接收方的缓冲区还有多少空间可以存储新的数据。
+
+> Together, the ackno and window size describe describes the receiver’s window: a range of
+indexes that the TCP sender is allowed to send.
+
+可接受范围即为[ackno, ackno + windows size)
+
+- 以及三个难点：
+  - seqno只有32位，stream有可能超出32位的大小。当seqno来到 index_(2^32-1) ,next byte就是index_0。
+  - TCP的seqno是一个随机值Initial Sequence Number(ISN,represents the zero point of SYN) 字节流中，第一个字节就是ISN+1(mod 2^32),依次往后,bala bala
+  - SIN和FIN位也会占据seqno
+- SYN 标志的序列号是 **ISN**。数据流中的第一个字节的序列号是 **ISN + 1**。
+- FIN 标志的序列号紧接在最后一个数据字节之后。假设最后一个数据字节的序列号是 `N`，那么 FIN 标志的序列号就是 **N + 1**。
+> 注意，在数据流中，索引是从0开始，需要使用 `abs_seqno - 1` 计算。
+
+### receive():
+  message.SYN --->  记录ISN，后面就是payload
+  message.FIN --->  结束，需要记录 然后传给reassamber的时候就是is_last_substring=True
+  message.RST --->  有错误 连接aborted
+
+## Check3 - TCP Sender
+
 ### Some details of TCP sender
 1. every few milliseconds, call tick(arg)
 2. tcpsender constructed. we have an argument to show the initial value of 
